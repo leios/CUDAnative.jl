@@ -103,7 +103,8 @@ kernel to determine the launch configuration. A host-side kernel launch is done 
     GC.@preserve args begin
         kernel_args = cudaconvert.(args)
         kernel_tt = Tuple{Core.Typeof.(kernel_args)...}
-        kernel = cufunction(f, kernel_tt; compilation_kwargs)
+        kernel_f = contextualize(f)
+        kernel = cufunction(kernel_f, kernel_tt; compilation_kwargs)
         kernel(kernel_args...; launch_kwargs)
     end
 
@@ -158,7 +159,8 @@ macro cuda(ex...)
             quote
                 # we're in kernel land already, so no need to cudaconvert arguments
                 local kernel_tt = Tuple{$((:(Core.Typeof($var)) for var in var_exprs)...)}
-                local kernel = dynamic_cufunction($(esc(f)), kernel_tt)
+                local kernel_f = contextualize($(esc(f)))
+                local kernel = dynamic_cufunction(kernel_f, kernel_tt)
                 kernel($(var_exprs...); $(map(esc, call_kwargs)...))
              end)
     else
@@ -171,7 +173,8 @@ macro cuda(ex...)
                 GC.@preserve $(vars...) begin
                     local kernel_args = cudaconvert.(($(var_exprs...),))
                     local kernel_tt = Tuple{Core.Typeof.(kernel_args)...}
-                    local kernel = cufunction($(esc(f)), kernel_tt;
+                    local kernel_f = contextualize($(esc(f)))
+                    local kernel = cufunction(kernel_f, kernel_tt;
                                               $(map(esc, compiler_kwargs)...))
                     kernel(kernel_args...; $(map(esc, call_kwargs)...))
                 end
