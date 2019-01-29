@@ -29,7 +29,7 @@ for f in (:cos, :cospi, :sin, :sinpi, :tan,
           :signbit, :abs,
           :sqrt, :cbrt,
           :ceil, :floor,)
-    @eval function Cassette.overdub(ctx::CUDActx, ::typeof(Base.$f), x::Union{Float32, Float64})
+    @eval function Cassette.overdub(ctx::CUDACtx, ::typeof(Base.$f), x::Union{Float32, Float64})
         @Base._inline_meta
         return CUDAnative.$f(x)
     end
