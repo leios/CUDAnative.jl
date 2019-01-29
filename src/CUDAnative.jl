@@ -25,6 +25,7 @@ end
 include("utils.jl")
 
 # needs to be loaded _before_ the compiler infrastructure, because of generated functions
+isdevice() = false
 include(joinpath("device", "tools.jl"))
 include(joinpath("device", "pointer.jl"))
 include(joinpath("device", "array.jl"))

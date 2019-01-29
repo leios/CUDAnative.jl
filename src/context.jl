@@ -18,6 +18,10 @@ using Cassette
 Cassette.@context CUDACtx
 const cudactx = CUDACtx()
 
+function Cassette.overdub(ctx::CUDACtx, ::typeof(isdevice))
+    return true
+end
+
 # libdevice.jl
 for f in (:cos, :cospi, :sin, :sinpi, :tan,
           :acos, :asin, :atan, 
