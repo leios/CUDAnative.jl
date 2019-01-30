@@ -16,7 +16,7 @@
 using Cassette
 
 Cassette.@context CUDACtx
-const cudactx = CUDACtx()
+const cudactx = Cassette.disablehooks(CUDACtx())
 
 function Cassette.overdub(ctx::CUDACtx, ::typeof(isdevice))
     return true
