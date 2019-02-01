@@ -15,8 +15,15 @@
 
 using Cassette
 
+function transform(ctx, ref)
+    ci = ref.code_info
+    ci.inlineable = true
+    return ci
+end
+const InlinePass = Cassette.@pass transform
+
 Cassette.@context CUDACtx
-const cudactx = Cassette.disablehooks(CUDACtx())
+const cudactx = Cassette.disablehooks(CUDACtx(pass = InlinePass))
 
 function Cassette.overdub(ctx::CUDACtx, ::typeof(isdevice))
     return true
@@ -40,5 +47,4 @@ for f in (:cos, :cospi, :sin, :sinpi, :tan,
 end
 
 contextualize(f::F) where F = (args...) -> Cassette.overdub(cudactx, f, args...)
-
 
