@@ -17,7 +17,10 @@ using Cassette
 
 function transform(ctx, ref)
     ci = ref.code_info
-    ci.inlineable = true
+    noinline = any(@nospecialize(x) -> Core.Compiler.isexpr(x, :meta) && x.args[1] == :noinline, CI.code)
+    if !noinline
+        ci.inlineable = true
+    end
     return ci
 end
 const InlinePass = Cassette.@pass transform
