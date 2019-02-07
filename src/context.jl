@@ -25,9 +25,8 @@ const InlinePass = Cassette.@pass transform
 Cassette.@context CUDACtx
 const cudactx = Cassette.disablehooks(CUDACtx(pass = InlinePass))
 
-function Cassette.overdub(ctx::CUDACtx, ::typeof(isdevice))
-    return true
-end
+Cassette.overdub(::CUDACtx, ::typeof(datatype_align), ::Type{T}) where {T} = datatype_align(T) 
+Cassette.overdub(ctx::CUDACtx, ::typeof(isdevice)) = true
 
 # libdevice.jl
 for f in (:cos, :cospi, :sin, :sinpi, :tan,
