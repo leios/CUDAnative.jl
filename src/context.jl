@@ -17,7 +17,7 @@ using Cassette
 
 function transform(ctx, ref)
     ci = ref.code_info
-    noinline = any(@nospecialize(x) -> Core.Compiler.isexpr(x, :meta) && x.args[1] == :noinline, CI.code)
+    noinline = any(@nospecialize(x) -> Core.Compiler.isexpr(x, :meta) && x.args[1] == :noinline, ci.code)
     if !noinline
         ci.inlineable = true
     end
