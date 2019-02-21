@@ -28,6 +28,11 @@ const InlinePass = Cassette.@pass transform
 Cassette.@context CUDACtx
 const cudactx = Cassette.disablehooks(CUDACtx(pass = InlinePass))
 
+# kwfunc fix
+function Cassette.overdub(ctx::CUDACtx, ::typeof(Core.kwfunc), f)
+    return Core.kwfunc(f)
+end
+
 Cassette.overdub(::CUDACtx, ::typeof(datatype_align), ::Type{T}) where {T} = datatype_align(T) 
 Cassette.overdub(ctx::CUDACtx, ::typeof(isdevice)) = true
 
