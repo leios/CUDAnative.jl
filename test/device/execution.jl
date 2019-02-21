@@ -439,7 +439,7 @@ end
     val_dev = CuTestArray(val)
     cuda_ptr = convert(CuPtr{Int}, val_dev.buf)
     ptr = CUDAnative.DevicePtr{Int}(cuda_ptr)
-    for i in (1, 10, 20, 34)
+    for i in (1, 10, 20, 32)
         variables = ('a':'z'..., 'A':'Z'...)
         params = [Symbol(variables[j]) for j in 1:i]
         # generate a kernel
