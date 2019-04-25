@@ -27,7 +27,7 @@ function transform(ctx, ref)
                    CI.code)
     CI.inlineable = !noinline
 
-    @static if isinteractive()
+    if isinteractive()
         # 265 fix, insert a call to the original method
         # that we later will remove with LLVM's DCE
         # TODO: We also don't want to compile these functions
