@@ -8,7 +8,7 @@ export @cuda, cudaconvert, cufunction, dynamic_cufunction, nearest_warpsize
 # split keyword arguments to `@cuda` into ones affecting the macro itself, the compiler and
 # the code it generates, or the execution
 function split_kwargs(kwargs)
-    macro_kws    = [:dynamic]
+    macro_kws    = [:dynamic, :interactive]
     compiler_kws = [:minthreads, :maxthreads, :blocks_per_sm, :maxregs]
     call_kws     = [:cooperative, :blocks, :threads, :shmem, :stream]
     macro_kwargs = []
@@ -138,11 +138,15 @@ macro cuda(ex...)
 
     # handle keyword arguments that influence the macro's behavior
     dynamic = false
+    interactive = isinteractive()
     for kwarg in macro_kwargs
         key,val = kwarg.args
         if key == :dynamic
             isa(val, Bool) || throw(ArgumentError("`dynamic` keyword argument to @cuda should be a constant value"))
             dynamic = val::Bool
+        elseif key == :interactive
+            isa(val, Bool) || throw(ArgumentError("`interactive` keyword argument to @cuda should be a constant value"))
+            interactive = val::Bool
         else
             throw(ArgumentError("Unsupported keyword argument '$key'"))
         end
@@ -159,7 +163,7 @@ macro cuda(ex...)
             quote
                 # we're in kernel land already, so no need to cudaconvert arguments
                 local kernel_tt = Tuple{$((:(Core.Typeof($var)) for var in var_exprs)...)}
-                local kernel_f = contextualize($(esc(f)))
+                local kernel_f = contextualize($(esc(f)), $interactive)
                 local kernel = dynamic_cufunction(kernel_f, kernel_tt)
                 kernel($(var_exprs...); $(map(esc, call_kwargs)...))
              end)
@@ -173,7 +177,7 @@ macro cuda(ex...)
                 GC.@preserve $(vars...) begin
                     local kernel_args = cudaconvert.(($(var_exprs...),))
                     local kernel_tt = Tuple{Core.Typeof.(kernel_args)...}
-                    local kernel_f = contextualize($(esc(f)))
+                    local kernel_f = contextualize($(esc(f)), $interactive)
                     local kernel = cufunction(kernel_f, kernel_tt;
                                               $(map(esc, compiler_kwargs)...))
                     kernel(kernel_args...; $(map(esc, call_kwargs)...))
