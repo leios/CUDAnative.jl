@@ -51,7 +51,7 @@ end
 
 function codegen(target::Symbol, job::CompilerJob;
                  libraries::Bool=true, dynamic_parallelism::Bool=true, optimize::Bool=true,
-                 strip::Bool=false,strict::Bool=true)
+                 strip::Bool=false, strict::Bool=true)
     ## Julia IR
 
     @timeit to[] "validation" check_method(job)
@@ -106,9 +106,8 @@ function codegen(target::Symbol, job::CompilerJob;
             end
         end
 
-        if optimize
-            kernel = @timeit to[] "optimization" optimize!(job, ir, kernel)
-        end
+        # `optimize = false` only applies kernel transformations
+        kernel = @timeit to[] "optimization" optimize!(job, ir, kernel, optimize)
 
         if libraries
             undefined_fns = LLVM.name.(decls(ir))

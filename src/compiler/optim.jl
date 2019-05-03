@@ -1,6 +1,6 @@
 # LLVM IR optimization
 
-function optimize!(job::CompilerJob, mod::LLVM.Module, entry::LLVM.Function)
+function optimize!(job::CompilerJob, mod::LLVM.Module, entry::LLVM.Function, optimize::Bool=true)
     tm = machine(job.cap, triple(mod))
 
     if job.kernel
@@ -15,93 +15,95 @@ function optimize!(job::CompilerJob, mod::LLVM.Module, entry::LLVM.Function)
     global current_job
     current_job = job
 
-    # Julia-specific optimizations
-    #
-    # NOTE: we need to use multiple distinct pass managers to force pass ordering;
-    #       intrinsics should never get lowered before Julia has optimized them.
-    if VERSION < v"1.2.0-DEV.375"
-        # with older versions of Julia, intrinsics are lowered unconditionally so we need to
-        # replace them with GPU-compatible counterparts before anything else. that breaks
-        # certain optimizations though: https://github.com/JuliaGPU/CUDAnative.jl/issues/340
+    if optimize
+        # Julia-specific optimizations
+        #
+        # NOTE: we need to use multiple distinct pass managers to force pass ordering;
+        #       intrinsics should never get lowered before Julia has optimized them.
+        if VERSION < v"1.2.0-DEV.375"
+            # with older versions of Julia, intrinsics are lowered unconditionally so we need to
+            # replace them with GPU-compatible counterparts before anything else. that breaks
+            # certain optimizations though: https://github.com/JuliaGPU/CUDAnative.jl/issues/340
 
-        ModulePassManager() do pm
-            initialize!(pm)
-            add!(pm, FunctionPass("LowerGCFrame", lower_gc_frame!))
-            aggressive_dce!(pm) # remove dead uses of ptls
-            add!(pm, ModulePass("LowerPTLS", lower_ptls!))
-            run!(pm, mod)
-        end
-
-        ModulePassManager() do pm
-            initialize!(pm)
-            ccall(:jl_add_optimization_passes, Cvoid,
-                  (LLVM.API.LLVMPassManagerRef, Cint),
-                  LLVM.ref(pm), Base.JLOptions().opt_level)
-            run!(pm, mod)
-        end
-    else
-        ModulePassManager() do pm
-            initialize!(pm)
-            ccall(:jl_add_optimization_passes, Cvoid,
-                  (LLVM.API.LLVMPassManagerRef, Cint, Cint),
-                  LLVM.ref(pm), Base.JLOptions().opt_level, #=lower_intrinsics=# 0)
-            run!(pm, mod)
-        end
-
-        ModulePassManager() do pm
-            initialize!(pm)
-
-            # lower intrinsics
-            add!(pm, FunctionPass("LowerGCFrame", lower_gc_frame!))
-            aggressive_dce!(pm) # remove dead uses of ptls
-            add!(pm, ModulePass("LowerPTLS", lower_ptls!))
-
-            # the Julia GC lowering pass also has some clean-up that is required
-            if VERSION >= v"1.2.0-DEV.531"
-                late_lower_gc_frame!(pm)
+            ModulePassManager() do pm
+                initialize!(pm)
+                add!(pm, FunctionPass("LowerGCFrame", lower_gc_frame!))
+                aggressive_dce!(pm) # remove dead uses of ptls
+                add!(pm, ModulePass("LowerPTLS", lower_ptls!))
+                run!(pm, mod)
             end
 
+            ModulePassManager() do pm
+                initialize!(pm)
+                ccall(:jl_add_optimization_passes, Cvoid,
+                        (LLVM.API.LLVMPassManagerRef, Cint),
+                        LLVM.ref(pm), Base.JLOptions().opt_level)
+                run!(pm, mod)
+            end
+        else
+            ModulePassManager() do pm
+                initialize!(pm)
+                ccall(:jl_add_optimization_passes, Cvoid,
+                        (LLVM.API.LLVMPassManagerRef, Cint, Cint),
+                        LLVM.ref(pm), Base.JLOptions().opt_level, #=lower_intrinsics=# 0)
+                run!(pm, mod)
+            end
+
+            ModulePassManager() do pm
+                initialize!(pm)
+
+                # lower intrinsics
+                add!(pm, FunctionPass("LowerGCFrame", lower_gc_frame!))
+                aggressive_dce!(pm) # remove dead uses of ptls
+                add!(pm, ModulePass("LowerPTLS", lower_ptls!))
+
+                # the Julia GC lowering pass also has some clean-up that is required
+                if VERSION >= v"1.2.0-DEV.531"
+                    late_lower_gc_frame!(pm)
+                end
+
+                run!(pm, mod)
+            end
+        end
+
+        # PTX-specific optimizations
+        ModulePassManager() do pm
+            initialize!(pm)
+
+            # NVPTX's target machine info enables runtime unrolling,
+            # but Julia's pass sequence only invokes the simple unroller.
+            loop_unroll!(pm)
+            instruction_combining!(pm)  # clean-up redundancy
+            licm!(pm)                   # the inner runtime check might be outer loop invariant
+
+            # the above loop unroll pass might have unrolled regular, non-runtime nested loops.
+            # that code still needs to be optimized (arguably, multiple unroll passes should be
+            # scheduled by the Julia optimizer). do so here, instead of re-optimizing entirely.
+            early_csemem_ssa!(pm) # TODO: gvn instead? see NVPTXTargetMachine.cpp::addEarlyCSEOrGVNPass
+            dead_store_elimination!(pm)
+
+            constant_merge!(pm)
+
+            # NOTE: if an optimization is missing, try scheduling an entirely new optimization
+            # to see which passes need to be added to the list above
+            #     LLVM.clopts("-print-after-all", "-filter-print-funcs=$(LLVM.name(entry))")
+            #     ModulePassManager() do pm
+            #         add_library_info!(pm, triple(mod))
+            #         add_transform_info!(pm, tm)
+            #         PassManagerBuilder() do pmb
+            #             populate!(pm, pmb)
+            #         end
+            #         run!(pm, mod)
+            #     end
+
+            cfgsimplification!(pm)
+
+            # get rid of the internalized functions; now possible unused
+            global_dce!(pm)
+
             run!(pm, mod)
         end
-    end
-
-    # PTX-specific optimizations
-    ModulePassManager() do pm
-        initialize!(pm)
-
-        # NVPTX's target machine info enables runtime unrolling,
-        # but Julia's pass sequence only invokes the simple unroller.
-        loop_unroll!(pm)
-        instruction_combining!(pm)  # clean-up redundancy
-        licm!(pm)                   # the inner runtime check might be outer loop invariant
-
-        # the above loop unroll pass might have unrolled regular, non-runtime nested loops.
-        # that code still needs to be optimized (arguably, multiple unroll passes should be
-        # scheduled by the Julia optimizer). do so here, instead of re-optimizing entirely.
-        early_csemem_ssa!(pm) # TODO: gvn instead? see NVPTXTargetMachine.cpp::addEarlyCSEOrGVNPass
-        dead_store_elimination!(pm)
-
-        constant_merge!(pm)
-
-        # NOTE: if an optimization is missing, try scheduling an entirely new optimization
-        # to see which passes need to be added to the list above
-        #     LLVM.clopts("-print-after-all", "-filter-print-funcs=$(LLVM.name(entry))")
-        #     ModulePassManager() do pm
-        #         add_library_info!(pm, triple(mod))
-        #         add_transform_info!(pm, tm)
-        #         PassManagerBuilder() do pmb
-        #             populate!(pm, pmb)
-        #         end
-        #         run!(pm, mod)
-        #     end
-
-        cfgsimplification!(pm)
-
-        # get rid of the internalized functions; now possible unused
-        global_dce!(pm)
-
-        run!(pm, mod)
-    end
+    end # if optimize
 
     # we compile a module containing the entire call graph,
     # so perform some interprocedural optimizations.
