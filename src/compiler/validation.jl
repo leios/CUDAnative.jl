@@ -198,11 +198,16 @@ function check_ir!(job, errors::Vector{IRError}, inst::LLVM.CallInst)
         elseif fn == "jl_apply_generic"
             # interpret the arguments
             f = try
-                args, nargs, _ = operands(inst)
-                ## args is a buffer where arguments are stored in
-                f, args = user.(uses(args))
-                ## first store into the args buffer is a direct store
-                f = first(operands(f::LLVM.StoreInst))::ConstantExpr
+                if VERSION < v"1.3.0-DEV.244"
+                    args, nargs, _ = operands(inst)
+                    ## args is a buffer where arguments are stored in
+                    f, args = user.(uses(args))
+                    ## first store into the args buffer is a direct store
+                    f = first(operands(f::LLVM.StoreInst))::ConstantExpr
+                else 
+                    f, args, nargs, _ = operands(inst)
+                end
+
                 f = first(operands(f))::ConstantExpr # get rid of addrspacecast
                 f = first(operands(f))::ConstantInt # get rid of inttoptr
                 f = convert(Int, f)
