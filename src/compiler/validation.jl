@@ -177,12 +177,16 @@ function check_ir!(job, errors::Vector{IRError}, inst::LLVM.CallInst)
         elseif fn == "jl_invoke"
             # interpret the arguments
             meth = try
-                meth, args, nargs, _ = operands(inst)
+                if VERSION < v"1.3.0-DEV.244"
+                    meth, args, nargs, _ = operands(inst)
+                else
+                    f, args, nargs, meth = operands(inst)
+                end
                 meth = first(operands(meth::ConstantExpr))::ConstantExpr
                 meth = first(operands(meth))::ConstantInt
                 meth = convert(Int, meth)
                 meth = Ptr{Cvoid}(meth)
-                Base.unsafe_pointer_to_objref(meth)
+                Base.unsafe_pointer_to_objref(meth)::Core.MethodInstance
             catch e
                 isa(e,TypeError) || rethrow()
                 @warn "Decoding arguments to jl_invoke failed, please file a bug with a reproducer." inst bb=LLVM.parent(inst)
